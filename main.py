@@ -19,8 +19,8 @@ SYSTEM_PROMPT = "Você é um assistente útil, direto e honesto. Responda em por
 
 if not API_KEY:
     raise RuntimeError(
-        "NVIDIA_API_KEY não configurada. Copie backend/.env.example para "
-        "backend/.env e preencha com sua chave da NVIDIA."
+        "NVIDIA_API_KEY não configurada. Copie .env.example para .env "
+        "(local) ou defina a variável de ambiente NVIDIA_API_KEY (produção/Vercel)."
     )
 
 client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
@@ -76,5 +76,5 @@ def chat(req: ChatRequest):
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
 
 
-frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+frontend_dir = Path(__file__).resolve().parent / "frontend"
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
