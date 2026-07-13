@@ -46,6 +46,48 @@
     </main>
   </div>
 
+  <button id="ttsFab" class="tts-fab" title="Leitor de texto" aria-label="Abrir leitor de texto">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z"/></svg>
+  </button>
+
+  <div id="ttsModal" class="tts-modal-overlay hidden">
+    <div class="tts-modal">
+      <div class="tts-modal-header">
+        <h2>Leitor de texto</h2>
+        <button id="ttsCloseBtn" class="tts-close-btn" aria-label="Fechar">✕</button>
+      </div>
+
+      <textarea id="ttsTextarea" class="tts-textarea" placeholder="Cole aqui o texto que você quer ouvir..."></textarea>
+
+      <div class="tts-controls">
+        <div class="tts-control-row">
+          <label for="ttsVoiceSelect">Voz</label>
+          <select id="ttsVoiceSelect" class="tts-select"></select>
+        </div>
+        <div class="tts-control-row">
+          <label for="ttsRate">Velocidade: <span id="ttsRateValue">1.0x</span></label>
+          <input type="range" id="ttsRate" min="0.5" max="2" step="0.1" value="1" />
+        </div>
+      </div>
+
+      <div class="tts-buttons">
+        <button id="ttsPlayBtn" class="tts-btn tts-btn-primary">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Ouvir
+        </button>
+        <button id="ttsPauseBtn" class="tts-btn" disabled>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
+          Pausar
+        </button>
+        <button id="ttsStopBtn" class="tts-btn" disabled>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+          Parar
+        </button>
+      </div>
+      <p class="tts-hint">Dica: a leitura usa a voz do seu celular/navegador. Se a tela travar ou o app for pro segundo plano, alguns navegadores pausam a leitura — mantenha a tela ligada enquanto ouve dirigindo.</p>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>
