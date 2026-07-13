@@ -92,6 +92,19 @@ function buildMessageRow(role, content) {
   bubble.className = "bubble";
   bubble.innerHTML = renderMarkdown(content);
   row.appendChild(bubble);
+
+  if (role === "assistant") {
+    const actions = document.createElement("div");
+    actions.className = "message-actions";
+    const listenBtn = document.createElement("button");
+    listenBtn.type = "button";
+    listenBtn.className = "listen-btn";
+    listenBtn.innerHTML = `${ICON_SPEAKER} Ouvir`;
+    listenBtn.addEventListener("click", () => toggleListenButton(listenBtn, content));
+    actions.appendChild(listenBtn);
+    row.appendChild(actions);
+  }
+
   return row;
 }
 
@@ -190,4 +203,202 @@ composer.addEventListener("submit", async (e) => {
     isStreaming = false;
     sendBtn.disabled = !inputEl.value.trim();
   }
+});
+
+// ---------- Leitor de texto (Text-to-Speech) ----------
+
+const ICON_SPEAKER = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>';
+const ICON_STOP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
+
+const ttsFab = document.getElementById("ttsFab");
+const ttsModal = document.getElementById("ttsModal");
+const ttsCloseBtn = document.getElementById("ttsCloseBtn");
+const ttsTextarea = document.getElementById("ttsTextarea");
+const ttsVoiceSelect = document.getElementById("ttsVoiceSelect");
+const ttsRate = document.getElementById("ttsRate");
+const ttsRateValue = document.getElementById("ttsRateValue");
+const ttsPlayBtn = document.getElementById("ttsPlayBtn");
+const ttsPauseBtn = document.getElementById("ttsPauseBtn");
+const ttsStopBtn = document.getElementById("ttsStopBtn");
+
+const ttsSupported = "speechSynthesis" in window;
+
+let ttsVoices = [];
+let activeListenBtn = null; // botão "Ouvir" (na mensagem) atualmente falando, se houver
+
+ttsRate.value = localStorage.getItem("tts_rate") || "1";
+ttsRateValue.textContent = `${parseFloat(ttsRate.value).toFixed(1)}x`;
+
+function stripMarkdownForSpeech(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, " trecho de código. ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[.*?\]\(.*?\)/g, "")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/\n{2,}/g, ". ")
+    .trim();
+}
+
+function loadTtsVoices() {
+  if (!ttsSupported) return;
+  const all = window.speechSynthesis.getVoices();
+  ttsVoices = all.filter((v) => v.lang.toLowerCase().startsWith("pt"));
+  if (!ttsVoices.length) ttsVoices = all;
+  populateVoiceSelect();
+}
+
+function populateVoiceSelect() {
+  const savedURI = localStorage.getItem("tts_voice_uri");
+  ttsVoiceSelect.innerHTML = "";
+  ttsVoices.forEach((v) => {
+    const opt = document.createElement("option");
+    opt.value = v.voiceURI;
+    opt.textContent = `${v.name} (${v.lang})`;
+    ttsVoiceSelect.appendChild(opt);
+  });
+  const preferred =
+    ttsVoices.find((v) => v.voiceURI === savedURI) ||
+    ttsVoices.find((v) => v.lang.toLowerCase() === "pt-br") ||
+    ttsVoices[0];
+  if (preferred) ttsVoiceSelect.value = preferred.voiceURI;
+}
+
+function getSelectedTtsVoice() {
+  return ttsVoices.find((v) => v.voiceURI === ttsVoiceSelect.value);
+}
+
+function speak(text, { onEnd } = {}) {
+  if (!ttsSupported) {
+    alert("Seu navegador não suporta leitura de texto em voz alta.");
+    return;
+  }
+  const cleanText = stripMarkdownForSpeech(text);
+  if (!cleanText) return;
+
+  window.speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(cleanText);
+  const voice = getSelectedTtsVoice();
+  if (voice) utterance.voice = voice;
+  utterance.lang = voice ? voice.lang : "pt-BR";
+  utterance.rate = parseFloat(ttsRate.value) || 1;
+
+  utterance.onend = () => onEnd && onEnd();
+  utterance.onerror = () => onEnd && onEnd();
+
+  window.speechSynthesis.speak(utterance);
+}
+
+function resetListenButton(btn) {
+  if (!btn) return;
+  btn.innerHTML = `${ICON_SPEAKER} Ouvir`;
+  btn.classList.remove("speaking");
+}
+
+function toggleListenButton(btn, content) {
+  const isThisSpeaking = activeListenBtn === btn;
+
+  if (activeListenBtn) {
+    resetListenButton(activeListenBtn);
+    window.speechSynthesis.cancel();
+    activeListenBtn = null;
+  }
+
+  if (isThisSpeaking) return; // era esse botão: só parou
+
+  activeListenBtn = btn;
+  btn.innerHTML = `${ICON_STOP} Parar`;
+  btn.classList.add("speaking");
+
+  speak(content, {
+    onEnd: () => {
+      if (activeListenBtn === btn) {
+        resetListenButton(btn);
+        activeListenBtn = null;
+      }
+    },
+  });
+}
+
+function resetTtsModalButtons() {
+  ttsPlayBtn.disabled = false;
+  ttsPauseBtn.disabled = true;
+  ttsPauseBtn.textContent = "Pausar";
+  ttsStopBtn.disabled = true;
+}
+
+function openTtsModal() {
+  ttsModal.classList.remove("hidden");
+  ttsTextarea.focus();
+}
+
+function closeTtsModal() {
+  window.speechSynthesis.cancel();
+  if (activeListenBtn) {
+    resetListenButton(activeListenBtn);
+    activeListenBtn = null;
+  }
+  resetTtsModalButtons();
+  ttsModal.classList.add("hidden");
+}
+
+if (ttsSupported) {
+  loadTtsVoices();
+  window.speechSynthesis.onvoiceschanged = loadTtsVoices;
+} else {
+  ttsPlayBtn.disabled = true;
+  ttsVoiceSelect.disabled = true;
+}
+
+ttsFab.addEventListener("click", openTtsModal);
+ttsCloseBtn.addEventListener("click", closeTtsModal);
+ttsModal.addEventListener("click", (e) => {
+  if (e.target === ttsModal) closeTtsModal();
+});
+
+ttsVoiceSelect.addEventListener("change", () => {
+  localStorage.setItem("tts_voice_uri", ttsVoiceSelect.value);
+});
+
+ttsRate.addEventListener("input", () => {
+  ttsRateValue.textContent = `${parseFloat(ttsRate.value).toFixed(1)}x`;
+  localStorage.setItem("tts_rate", ttsRate.value);
+});
+
+ttsPlayBtn.addEventListener("click", () => {
+  const text = ttsTextarea.value.trim();
+  if (!text) return;
+
+  if (activeListenBtn) {
+    resetListenButton(activeListenBtn);
+    activeListenBtn = null;
+  }
+
+  ttsPlayBtn.disabled = true;
+  ttsPauseBtn.disabled = false;
+  ttsStopBtn.disabled = false;
+
+  speak(text, { onEnd: resetTtsModalButtons });
+});
+
+ttsPauseBtn.addEventListener("click", () => {
+  if (!ttsSupported) return;
+  if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+    window.speechSynthesis.pause();
+    ttsPauseBtn.textContent = "Retomar";
+  } else if (window.speechSynthesis.paused) {
+    window.speechSynthesis.resume();
+    ttsPauseBtn.textContent = "Pausar";
+  }
+});
+
+ttsStopBtn.addEventListener("click", () => {
+  window.speechSynthesis.cancel();
+  resetTtsModalButtons();
 });
