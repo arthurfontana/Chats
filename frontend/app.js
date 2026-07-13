@@ -1,5 +1,8 @@
 const STORAGE_KEY = "glm_chat_conversations";
 
+const ICON_SPEAKER = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>';
+const ICON_STOP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
+
 const messagesEl = document.getElementById("messages");
 const emptyState = document.getElementById("emptyState");
 const chatListEl = document.getElementById("chatList");
@@ -206,9 +209,6 @@ composer.addEventListener("submit", async (e) => {
 });
 
 // ---------- Leitor de texto (Text-to-Speech) ----------
-
-const ICON_SPEAKER = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>';
-const ICON_STOP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
 
 const ttsFab = document.getElementById("ttsFab");
 const ttsModal = document.getElementById("ttsModal");
