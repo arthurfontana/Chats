@@ -31,8 +31,27 @@ function saveConversations() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
 }
 
+function generateId() {
+  // crypto.randomUUID() só existe em contexto seguro (HTTPS) e navegadores
+  // recentes. No Chrome do Android via HTTP/IP ele é undefined e, sem este
+  // fallback, o script quebraria no carregamento e nenhum botão funcionaria.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      /* cai no fallback abaixo */
+    }
+  }
+  return (
+    "id-" +
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2, 10)
+  );
+}
+
 function createConversation() {
-  const id = crypto.randomUUID();
+  const id = generateId();
   conversations.unshift({ id, title: "Nova conversa", messages: [] });
   saveConversations();
   return id;
