@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sem android:packageNames de propósito: o app do Claude pode publicar sob
+  nomes de pacote diferentes por região/canal. A filtragem real acontece em
+  código (veja Constants.CLAUDE_PACKAGE_NAMES), o que deixa mais fácil ajustar
+  sem precisar mudar este XML.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100"
+    android:settingsActivity="com.arthurfontana.claudescheduler.ui.MainActivity" />

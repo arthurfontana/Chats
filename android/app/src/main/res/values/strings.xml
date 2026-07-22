@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Agendador Claude</string>
+    <string name="accessibility_service_label">Automação de envio — Claude</string>
+    <string name="accessibility_service_description">Permite que o Agendador Claude digite e envie mensagens agendadas dentro do app oficial do Claude. Essa permissão só é usada para localizar o campo de texto e o botão de enviar na tela do app do Claude nos horários que você configurar.</string>
+
+    <string name="title_schedules">Mensagens agendadas</string>
+    <string name="empty_state">Nenhuma mensagem agendada ainda.\nToque em + para criar a primeira.</string>
+
+    <string name="banner_accessibility_title">Permissão de Acessibilidade necessária</string>
+    <string name="banner_accessibility_body">Ative o serviço \"%1$s\" para que o app consiga digitar e enviar as mensagens automaticamente.</string>
+    <string name="banner_action_enable">Ativar</string>
+
+    <string name="banner_alarm_title">Permissão de alarmes exatos necessária</string>
+    <string name="banner_alarm_body">No Android 12+, é preciso autorizar alarmes exatos para que os horários sejam respeitados com precisão.</string>
+
+    <string name="label_time">Horário</string>
+    <string name="label_message">Mensagem</string>
+    <string name="label_repeat">Repetir nos dias</string>
+    <string name="label_enabled">Ativo</string>
+    <string name="hint_message">Digite a mensagem que será enviada automaticamente…</string>
+
+    <string name="action_save">Salvar</string>
+    <string name="action_delete">Excluir</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_new_schedule">Nova mensagem agendada</string>
+    <string name="action_edit_schedule">Editar mensagem agendada</string>
+
+    <string name="day_sun">D</string>
+    <string name="day_mon">S</string>
+    <string name="day_tue">T</string>
+    <string name="day_wed">Q</string>
+    <string name="day_thu">Q</string>
+    <string name="day_fri">S</string>
+    <string name="day_sat">S</string>
+
+    <string name="error_empty_message">Escreva uma mensagem antes de salvar.</string>
+    <string name="next_run_prefix">Próximo envio: %1$s</string>
+    <string name="one_time_label">Uma única vez</string>
+
+    <string name="warning_fragile">⚠️ Automação por acessibilidade: se o app do Claude mudar de layout, o envio pode falhar. Projeto DIY, sem garantias.</string>
+</resources>
