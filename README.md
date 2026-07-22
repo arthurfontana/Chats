@@ -6,6 +6,7 @@ Chat web (estilo Claude) conectado à API do GLM 5.2 via NVIDIA Integrate (`http
 
 - `main.py` — app FastAPI (na raiz do projeto, formato zero-config esperado pela Vercel) que guarda a chave da API em variável de ambiente, chama o modelo `z-ai/glm-5.2` e faz streaming da resposta para o navegador. A chave **nunca** é exposta ao cliente.
 - `frontend/` — página estática (HTML/CSS/JS) com sidebar de conversas, renderização de markdown/código e streaming em tempo real, servida pelo próprio `main.py`.
+- `android/` — projeto Android separado (Gradle/Kotlin) que agenda o envio automático de mensagens no app oficial do Claude via Accessibility Service. Não depende do chat web acima; veja `android/README.md` para detalhes, limitações e como baixar o APK direto da aba Actions do GitHub.
 
 ## Como rodar localmente
 
