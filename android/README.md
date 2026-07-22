@@ -79,3 +79,18 @@ publica como artefato do run. Para baixar pelo celular:
 
 Este é um app de debug (`applicationId` fixo, sem assinatura de release) —
 suficiente para uso pessoal/estudo.
+
+### "App bloqueado para proteger seu dispositivo" (Play Protect)
+
+Como o app usa um **Accessibility Service** para ler a tela e simular
+toques/digitação dentro do app do Claude — o mesmo padrão usado por trojans
+bancários —, o Google Play Protect costuma bloquear a instalação de qualquer
+APK com essa permissão baixado fora da Play Store, mesmo sendo um app pessoal
+legítimo. Não há como evitar isso no código sem remover a automação em si.
+Para instalar mesmo assim:
+
+1. Abra a Play Store → ícone de perfil → **Play Protect**.
+2. Toque no ícone de engrenagem (Configurações).
+3. Desative "Verificar apps com o Play Protect".
+4. Instale o `.apk` novamente.
+5. Pode reativar a opção depois; isso não desinstala o app.
