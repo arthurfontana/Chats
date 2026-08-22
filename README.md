@@ -1,10 +1,10 @@
 # Chats
 
-Chat web (estilo Claude) conectado à API do GLM 5.2 via NVIDIA Integrate (`https://integrate.api.nvidia.com/v1`).
+Chat web (estilo Claude) conectado à API do Llama 3.3 70B via NVIDIA Integrate (`https://integrate.api.nvidia.com/v1`).
 
 ## Arquitetura
 
-- `main.py` — app FastAPI (na raiz do projeto, formato zero-config esperado pela Vercel) que guarda a chave da API em variável de ambiente, chama o modelo `z-ai/glm-5.2` e faz streaming da resposta para o navegador. A chave **nunca** é exposta ao cliente.
+- `main.py` — app FastAPI (na raiz do projeto, formato zero-config esperado pela Vercel) que guarda a chave da API em variável de ambiente, chama o modelo `meta/llama-3.3-70b-instruct` e faz streaming da resposta para o navegador. A chave **nunca** é exposta ao cliente.
 - `frontend/` — página estática (HTML/CSS/JS) com sidebar de conversas, renderização de markdown/código e streaming em tempo real, servida pelo próprio `main.py`.
 - `frontend/storefront.html` — página simples para digitar um endereço e ver a foto da fachada do estabelecimento (Street View). Consome `/api/storefront-image`.
 - `android/` — projeto Android separado (Gradle/Kotlin) que agenda o envio automático de mensagens no app oficial do Claude via Accessibility Service. Não depende do chat web acima; veja `android/README.md` para detalhes, limitações e como baixar o APK direto da aba Actions do GitHub.
@@ -32,7 +32,7 @@ O projeto já está no formato "zero-config" que a Vercel reconhece automaticame
 2. **Configurar as variáveis de ambiente** em *Project Settings → Environment Variables* (isso é obrigatório — o `.env` não vai para o Git nem para o deploy):
    - `NVIDIA_API_KEY` (obrigatória) — sua chave da NVIDIA. **Use uma chave nova**, não a que foi exposta durante o desenvolvimento.
    - `NVIDIA_BASE_URL` (opcional, default já é `https://integrate.api.nvidia.com/v1`)
-   - `GLM_MODEL` (opcional, default já é `z-ai/glm-5.2`)
+   - `GLM_MODEL` (opcional, default já é `meta/llama-3.3-70b-instruct`)
    - `GOOGLE_MAPS_API_KEY` (obrigatória para a página `/storefront.html`) — chave da Google Cloud com **Geocoding API** e **Street View Static API** habilitadas (e faturamento ativo no projeto Google Cloud). Nunca é exposta ao cliente: todas as chamadas ao Google Maps acontecem no backend.
 
    Ou via CLI: `vercel env add NVIDIA_API_KEY` / `vercel env add GOOGLE_MAPS_API_KEY`.

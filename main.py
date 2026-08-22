@@ -18,8 +18,8 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 API_KEY = os.getenv("NVIDIA_API_KEY")
 BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-MODEL = os.getenv("GLM_MODEL", "z-ai/glm-5.2")
-VISION_MODEL = os.getenv("GLM_VISION_MODEL", MODEL)
+MODEL = os.getenv("GLM_MODEL", "meta/llama-3.3-70b-instruct")
+VISION_MODEL = os.getenv("GLM_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct")
 SYSTEM_PROMPT = "Você é um assistente útil, direto e honesto. Responda em português, a menos que o usuário escreva em outro idioma."
 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
