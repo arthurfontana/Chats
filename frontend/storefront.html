@@ -84,11 +84,22 @@
     height: 100%;
     background: #2563eb;
   }
+  .sf-batch-link {
+    display: inline-block;
+    margin-bottom: 20px;
+    font-size: 0.9rem;
+    color: #2563eb;
+    text-decoration: none;
+  }
+  .sf-batch-link:hover {
+    text-decoration: underline;
+  }
 </style>
 </head>
 <body>
   <div class="sf-wrap">
     <h1>Foto da fachada (Street View)</h1>
+    <a class="sf-batch-link" href="storefront-csv.html">Prefere subir uma lista? Envie um CSV com vários endereços →</a>
     <form id="sfForm" class="sf-form">
       <input id="sfAddress" type="text" placeholder="Endereço completo do estabelecimento" required />
       <button id="sfBtn" type="submit">Buscar foto</button>
