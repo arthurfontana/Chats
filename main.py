@@ -298,6 +298,7 @@ def _detect_address_column(fieldnames: List[str]) -> str:
 
 
 BATCH_CONCURRENCY = 5
+BATCH_MAX_ROWS = 25
 
 
 @app.post("/api/storefront-batch")
@@ -319,6 +320,15 @@ async def storefront_batch(file: UploadFile = File(...)):
         raise HTTPException(
             status_code=400,
             detail=f"Nenhum endereço encontrado na coluna '{address_column}'.",
+        )
+    if len(rows) > BATCH_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"CSV com {len(rows)} endereços excede o limite de {BATCH_MAX_ROWS} por "
+                "envio (o processamento expiraria pelo limite de tempo do servidor). "
+                "Divida o arquivo em lotes menores."
+            ),
         )
 
     semaphore = asyncio.Semaphore(BATCH_CONCURRENCY)

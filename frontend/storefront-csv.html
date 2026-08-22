@@ -236,7 +236,17 @@
           method: 'POST',
           body: formData,
         });
-        const data = await resp.json();
+        const raw = await resp.text();
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          throw new Error(
+            resp.status === 504 || !resp.ok
+              ? 'O processamento demorou demais e expirou (limite de tempo do servidor). Tente enviar um CSV com menos endereços.'
+              : 'Resposta inesperada do servidor.'
+          );
+        }
         if (!resp.ok) {
           throw new Error(data.detail || `Erro ${resp.status}`);
         }
