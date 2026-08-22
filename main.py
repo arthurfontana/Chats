@@ -1,4 +1,7 @@
+import asyncio
 import base64
+import csv
+import io
 import json
 import math
 import os
@@ -7,7 +10,7 @@ from typing import List
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -245,14 +248,9 @@ async def _classify_storefront_image(image_bytes: bytes) -> dict:
     return result
 
 
-@app.get("/api/storefront-score")
-async def storefront_score(
-    address: str = Query(..., min_length=3),
-    size: str = "640x400",
-    fov: int = 80,
-    pitch: int = 0,
-):
-    """Busca a foto da fachada e retorna um score comercial x residencial."""
+async def _score_address(
+    address: str, size: str = "640x400", fov: int = 80, pitch: int = 0
+) -> dict:
     view = await _resolve_storefront_view(address)
 
     async with httpx.AsyncClient(timeout=15) as http:
@@ -277,6 +275,91 @@ async def storefront_score(
         "image_url": f"/api/storefront-image?address={address}",
         **classification,
     }
+
+
+@app.get("/api/storefront-score")
+async def storefront_score(
+    address: str = Query(..., min_length=3),
+    size: str = "640x400",
+    fov: int = 80,
+    pitch: int = 0,
+):
+    """Busca a foto da fachada e retorna um score comercial x residencial."""
+    return await _score_address(address, size=size, fov=fov, pitch=pitch)
+
+
+def _detect_address_column(fieldnames: List[str]) -> str:
+    candidates = ["endereco", "endereço", "address", "logradouro"]
+    lower_map = {name.lower().strip(): name for name in fieldnames}
+    for candidate in candidates:
+        if candidate in lower_map:
+            return lower_map[candidate]
+    return fieldnames[0]
+
+
+BATCH_CONCURRENCY = 5
+
+
+@app.post("/api/storefront-batch")
+async def storefront_batch(file: UploadFile = File(...)):
+    """Recebe um CSV com endereços e retorna score + classificação para cada linha."""
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV vazio ou sem cabeçalho.")
+
+    address_column = _detect_address_column(reader.fieldnames)
+    rows = [row for row in reader if (row.get(address_column) or "").strip()]
+    if not rows:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nenhum endereço encontrado na coluna '{address_column}'.",
+        )
+
+    semaphore = asyncio.Semaphore(BATCH_CONCURRENCY)
+
+    async def process(row: dict) -> dict:
+        address = row[address_column].strip()
+        async with semaphore:
+            try:
+                result = await _score_address(address)
+                return {
+                    "endereco": address,
+                    "classificacao": result.get("classificacao"),
+                    "score_comercial": result.get("score_comercial"),
+                    "porta_atendimento_visivel": result.get("porta_atendimento_visivel"),
+                    "porta_aberta": result.get("porta_aberta"),
+                    "justificativa": result.get("justificativa"),
+                    "erro": None,
+                }
+            except HTTPException as exc:
+                return {
+                    "endereco": address,
+                    "classificacao": None,
+                    "score_comercial": None,
+                    "porta_atendimento_visivel": None,
+                    "porta_aberta": None,
+                    "justificativa": None,
+                    "erro": str(exc.detail),
+                }
+            except Exception as exc:  # não deixa uma linha derrubar o lote inteiro
+                return {
+                    "endereco": address,
+                    "classificacao": None,
+                    "score_comercial": None,
+                    "porta_atendimento_visivel": None,
+                    "porta_aberta": None,
+                    "justificativa": None,
+                    "erro": str(exc),
+                }
+
+    results = await asyncio.gather(*(process(row) for row in rows))
+    return {"coluna_endereco": address_column, "total": len(results), "resultados": results}
 
 
 frontend_dir = Path(__file__).resolve().parent / "frontend"
