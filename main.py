@@ -298,43 +298,14 @@ def _detect_address_column(fieldnames: List[str]) -> str:
 
 
 BATCH_CONCURRENCY = 5
-BATCH_MAX_ROWS = 25
+BATCH_MAX_ROWS = 20
 
 
-@app.post("/api/storefront-batch")
-async def storefront_batch(file: UploadFile = File(...)):
-    """Recebe um CSV com endereços e retorna score + classificação para cada linha."""
-    raw = await file.read()
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("latin-1")
-
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
-        raise HTTPException(status_code=400, detail="CSV vazio ou sem cabeçalho.")
-
-    address_column = _detect_address_column(reader.fieldnames)
-    rows = [row for row in reader if (row.get(address_column) or "").strip()]
-    if not rows:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Nenhum endereço encontrado na coluna '{address_column}'.",
-        )
-    if len(rows) > BATCH_MAX_ROWS:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"CSV com {len(rows)} endereços excede o limite de {BATCH_MAX_ROWS} por "
-                "envio (o processamento expiraria pelo limite de tempo do servidor). "
-                "Divida o arquivo em lotes menores."
-            ),
-        )
-
+async def _process_addresses(addresses: List[str]) -> List[dict]:
     semaphore = asyncio.Semaphore(BATCH_CONCURRENCY)
 
-    async def process(row: dict) -> dict:
-        address = row[address_column].strip()
+    async def process(address: str) -> dict:
+        address = address.strip()
         async with semaphore:
             try:
                 result = await _score_address(address)
@@ -368,7 +339,108 @@ async def storefront_batch(file: UploadFile = File(...)):
                     "erro": str(exc),
                 }
 
-    results = await asyncio.gather(*(process(row) for row in rows))
+    return await asyncio.gather(*(process(a) for a in addresses))
+
+
+class BatchAddressesRequest(BaseModel):
+    enderecos: List[str]
+
+
+@app.post("/api/storefront-batch-addresses")
+async def storefront_batch_addresses(req: BatchAddressesRequest):
+    """Recebe uma lista pequena de endereços (um lote) e retorna score + classificação.
+
+    Pensado para ser chamado repetidamente pelo cliente, um lote de cada vez,
+    para processar arquivos grandes sem estourar o timeout da função serverless.
+    """
+    addresses = [a for a in req.enderecos if a and a.strip()]
+    if not addresses:
+        raise HTTPException(status_code=400, detail="Nenhum endereço enviado.")
+    if len(addresses) > BATCH_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Lote com {len(addresses)} endereços excede o limite de {BATCH_MAX_ROWS} "
+                "por requisição."
+            ),
+        )
+
+    results = await _process_addresses(addresses)
+    return {"total": len(results), "resultados": results}
+
+
+@app.post("/api/storefront-batch-parse")
+async def storefront_batch_parse(file: UploadFile = File(...)):
+    """Recebe o CSV completo e só faz o parsing (detecta coluna, lista endereços).
+
+    Usado pelo cliente para depois disparar o processamento em lotes via
+    /api/storefront-batch-addresses, sem reenviar o arquivo a cada lote.
+    """
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV vazio ou sem cabeçalho.")
+
+    address_column = _detect_address_column(reader.fieldnames)
+    addresses = [
+        (row.get(address_column) or "").strip()
+        for row in reader
+        if (row.get(address_column) or "").strip()
+    ]
+    if not addresses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nenhum endereço encontrado na coluna '{address_column}'.",
+        )
+
+    return {
+        "coluna_endereco": address_column,
+        "total": len(addresses),
+        "enderecos": addresses,
+        "tamanho_lote_sugerido": BATCH_MAX_ROWS,
+    }
+
+
+@app.post("/api/storefront-batch")
+async def storefront_batch(file: UploadFile = File(...)):
+    """Compat: recebe um CSV pequeno e processa tudo de uma vez (sem lotes)."""
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV vazio ou sem cabeçalho.")
+
+    address_column = _detect_address_column(reader.fieldnames)
+    addresses = [
+        (row.get(address_column) or "").strip()
+        for row in reader
+        if (row.get(address_column) or "").strip()
+    ]
+    if not addresses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nenhum endereço encontrado na coluna '{address_column}'.",
+        )
+    if len(addresses) > BATCH_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"CSV com {len(addresses)} endereços excede o limite de {BATCH_MAX_ROWS} por "
+                "envio (o processamento expiraria pelo limite de tempo do servidor). "
+                "Use /storefront-csv.html, que processa arquivos grandes em lotes automaticamente."
+            ),
+        )
+
+    results = await _process_addresses(addresses)
     return {"coluna_endereco": address_column, "total": len(results), "resultados": results}
 
 

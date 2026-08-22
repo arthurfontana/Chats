@@ -105,6 +105,20 @@
     cursor: pointer;
     font-size: 0.85rem;
   }
+  .sf-progress-wrap {
+    width: 100%;
+    height: 10px;
+    background: #e5e5e5;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .sf-progress-bar {
+    height: 100%;
+    background: #111;
+    width: 0%;
+    transition: width 0.2s ease;
+  }
 </style>
 </head>
 <body>
@@ -114,12 +128,18 @@
     <p class="hint">
       Envie um CSV com uma coluna de endereço completo (ex.: "endereco", "endereço" ou "address").
       Cada linha é geolocalizada, tem a fachada capturada no Street View e recebe score comercial
-      e classificação (comercial / residencial / indeterminado).
+      e classificação (comercial / residencial / indeterminado). Arquivos grandes (até milhares de
+      linhas) são processados em lotes automaticamente, e os resultados vão aparecendo na tabela
+      conforme cada lote termina.
     </p>
     <form id="sfForm" class="sf-form">
       <input id="sfFile" type="file" accept=".csv" required />
       <button id="sfBtn" type="submit">Processar CSV</button>
+      <button id="sfCancel" type="button" hidden>Cancelar</button>
     </form>
+    <div id="sfProgressWrap" class="sf-progress-wrap" hidden>
+      <div id="sfProgressBar" class="sf-progress-bar"></div>
+    </div>
     <p id="sfStatus" class="sf-status"></p>
 
     <div id="sfResultWrap" hidden>
@@ -149,13 +169,20 @@
     const form = document.getElementById('sfForm');
     const fileInput = document.getElementById('sfFile');
     const btn = document.getElementById('sfBtn');
+    const cancelBtn = document.getElementById('sfCancel');
     const status = document.getElementById('sfStatus');
+    const progressWrap = document.getElementById('sfProgressWrap');
+    const progressBar = document.getElementById('sfProgressBar');
     const resultWrap = document.getElementById('sfResultWrap');
     const summary = document.getElementById('sfSummary');
     const tableBody = document.getElementById('sfTableBody');
     const downloadBtn = document.getElementById('sfDownload');
 
+    const BATCH_SIZE = 15;
+    const MAX_RETRIES = 3;
+
     let lastResults = [];
+    let cancelled = false;
 
     function boolText(v) {
       if (v === true) return 'Sim';
@@ -163,31 +190,40 @@
       return 'N/D';
     }
 
-    function renderTable(resultados) {
-      tableBody.innerHTML = resultados.map((r) => {
-        if (r.erro) {
-          return `
-            <tr>
-              <td>${r.endereco}</td>
-              <td><span class="sf-badge erro">erro</span></td>
-              <td>—</td>
-              <td>—</td>
-              <td>—</td>
-              <td>${r.erro}</td>
-            </tr>`;
-        }
-        const classe = (r.classificacao || 'indeterminado').toLowerCase();
-        const score = typeof r.score_comercial === 'number' ? `${r.score_comercial}/100` : 'N/D';
+    function rowHtml(r) {
+      if (r.erro) {
         return `
           <tr>
             <td>${r.endereco}</td>
-            <td><span class="sf-badge ${classe}">${classe}</span></td>
-            <td>${score}</td>
-            <td>${boolText(r.porta_atendimento_visivel)}</td>
-            <td>${boolText(r.porta_aberta)}</td>
-            <td>${r.justificativa || ''}</td>
+            <td><span class="sf-badge erro">erro</span></td>
+            <td>—</td>
+            <td>—</td>
+            <td>—</td>
+            <td>${r.erro}</td>
           </tr>`;
-      }).join('');
+      }
+      const classe = (r.classificacao || 'indeterminado').toLowerCase();
+      const score = typeof r.score_comercial === 'number' ? `${r.score_comercial}/100` : 'N/D';
+      return `
+        <tr>
+          <td>${r.endereco}</td>
+          <td><span class="sf-badge ${classe}">${classe}</span></td>
+          <td>${score}</td>
+          <td>${boolText(r.porta_atendimento_visivel)}</td>
+          <td>${boolText(r.porta_aberta)}</td>
+          <td>${r.justificativa || ''}</td>
+        </tr>`;
+    }
+
+    function appendRows(resultados) {
+      tableBody.insertAdjacentHTML('beforeend', resultados.map(rowHtml).join(''));
+    }
+
+    function updateSummary(coluna) {
+      const erros = lastResults.filter((r) => r.erro).length;
+      summary.textContent = `${lastResults.length} endereço(s) processado(s)` +
+        (coluna ? ` — coluna "${coluna}"` : '') +
+        (erros ? ` — ${erros} com erro` : '');
     }
 
     function toCsv(resultados) {
@@ -218,23 +254,37 @@
       URL.revokeObjectURL(url);
     });
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const file = fileInput.files[0];
-      if (!file) return;
+    cancelBtn.addEventListener('click', () => {
+      cancelled = true;
+    });
 
-      btn.disabled = true;
-      status.classList.remove('error');
-      status.textContent = 'Processando endereços... isso pode levar alguns minutos.';
-      resultWrap.hidden = true;
+    function chunk(arr, size) {
+      const out = [];
+      for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+      return out;
+    }
 
+    async function parseCsv(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      const resp = await fetch('/api/storefront-batch-parse', { method: 'POST', body: formData });
+      const raw = await resp.text();
+      let data;
       try {
-        const formData = new FormData();
-        formData.append('file', file);
+        data = JSON.parse(raw);
+      } catch {
+        throw new Error('Não foi possível ler o CSV enviado.');
+      }
+      if (!resp.ok) throw new Error(data.detail || `Erro ${resp.status}`);
+      return data;
+    }
 
-        const resp = await fetch('/api/storefront-batch', {
+    async function processBatch(enderecos, attempt = 1) {
+      try {
+        const resp = await fetch('/api/storefront-batch-addresses', {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enderecos }),
         });
         const raw = await resp.text();
         let data;
@@ -243,26 +293,83 @@
         } catch {
           throw new Error(
             resp.status === 504 || !resp.ok
-              ? 'O processamento demorou demais e expirou (limite de tempo do servidor). Tente enviar um CSV com menos endereços.'
+              ? 'timeout'
               : 'Resposta inesperada do servidor.'
           );
         }
-        if (!resp.ok) {
-          throw new Error(data.detail || `Erro ${resp.status}`);
+        if (!resp.ok) throw new Error(data.detail || `Erro ${resp.status}`);
+        return data.resultados || [];
+      } catch (err) {
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          return processBatch(enderecos, attempt + 1);
+        }
+        // esgotou as tentativas: marca cada endereço do lote como erro, sem derrubar o processo
+        return enderecos.map((endereco) => ({
+          endereco,
+          classificacao: null,
+          score_comercial: null,
+          porta_atendimento_visivel: null,
+          porta_aberta: null,
+          justificativa: null,
+          erro: err.message === 'timeout'
+            ? 'Tempo de processamento do lote esgotado.'
+            : (err.message || 'Falha ao processar este lote.'),
+        }));
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      cancelled = false;
+      lastResults = [];
+      tableBody.innerHTML = '';
+      btn.disabled = true;
+      cancelBtn.hidden = false;
+      status.classList.remove('error');
+      status.textContent = 'Lendo o CSV...';
+      resultWrap.hidden = true;
+      progressWrap.hidden = false;
+      progressBar.style.width = '0%';
+
+      try {
+        const parsed = await parseCsv(file);
+        const enderecos = parsed.enderecos;
+        const coluna = parsed.coluna_endereco;
+        const batches = chunk(enderecos, BATCH_SIZE);
+
+        resultWrap.hidden = false;
+
+        for (let i = 0; i < batches.length; i++) {
+          if (cancelled) {
+            status.textContent = `Cancelado após ${lastResults.length} de ${enderecos.length} endereço(s).`;
+            break;
+          }
+          status.textContent =
+            `Processando lote ${i + 1} de ${batches.length} ` +
+            `(${lastResults.length} de ${enderecos.length} endereços concluídos)...`;
+
+          const resultados = await processBatch(batches[i]);
+          lastResults = lastResults.concat(resultados);
+          appendRows(resultados);
+          updateSummary(coluna);
+
+          const pct = Math.round((lastResults.length / enderecos.length) * 100);
+          progressBar.style.width = `${pct}%`;
         }
 
-        lastResults = data.resultados || [];
-        const erros = lastResults.filter((r) => r.erro).length;
-        summary.textContent = `${data.total} endereço(s) processado(s) — coluna "${data.coluna_endereco}"` +
-          (erros ? ` — ${erros} com erro` : '');
-        renderTable(lastResults);
-        resultWrap.hidden = false;
-        status.textContent = '';
+        if (!cancelled) {
+          status.textContent = '';
+        }
       } catch (err) {
         status.textContent = err.message || 'Falha ao processar o CSV.';
         status.classList.add('error');
       } finally {
         btn.disabled = false;
+        cancelBtn.hidden = true;
       }
     });
   </script>
