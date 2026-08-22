@@ -3,8 +3,10 @@ import base64
 import csv
 import io
 import json
+import logging
 import math
 import os
+import time
 from pathlib import Path
 from typing import List
 
@@ -18,6 +20,12 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("storefront")
 
 API_KEY = os.getenv("NVIDIA_API_KEY")
 BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
@@ -210,7 +218,11 @@ async def _classify_storefront_image(image_bytes: bytes) -> dict:
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:image/jpeg;base64,{image_b64}"
 
-    completion = client.chat.completions.create(
+    t0 = time.monotonic()
+    # client.chat.completions.create é síncrono/bloqueante; roda numa thread para
+    # não travar o event loop e permitir que o asyncio.gather processe em paralelo.
+    completion = await asyncio.to_thread(
+        client.chat.completions.create,
         model=VISION_MODEL,
         temperature=0,
         max_tokens=400,
@@ -228,6 +240,7 @@ async def _classify_storefront_image(image_bytes: bytes) -> dict:
             },
         ],
     )
+    logger.info("vision model respondeu em %.2fs", time.monotonic() - t0)
 
     raw = completion.choices[0].message.content or ""
     raw = raw.strip()
@@ -306,9 +319,14 @@ async def _process_addresses(addresses: List[str]) -> List[dict]:
 
     async def process(address: str) -> dict:
         address = address.strip()
+        t0 = time.monotonic()
         async with semaphore:
             try:
                 result = await _score_address(address)
+                logger.info(
+                    "OK '%s' em %.2fs -> %s",
+                    address, time.monotonic() - t0, result.get("classificacao"),
+                )
                 return {
                     "endereco": address,
                     "classificacao": result.get("classificacao"),
@@ -319,6 +337,10 @@ async def _process_addresses(addresses: List[str]) -> List[dict]:
                     "erro": None,
                 }
             except HTTPException as exc:
+                logger.warning(
+                    "HTTPException '%s' em %.2fs: %s",
+                    address, time.monotonic() - t0, exc.detail,
+                )
                 return {
                     "endereco": address,
                     "classificacao": None,
@@ -329,6 +351,9 @@ async def _process_addresses(addresses: List[str]) -> List[dict]:
                     "erro": str(exc.detail),
                 }
             except Exception as exc:  # não deixa uma linha derrubar o lote inteiro
+                logger.exception(
+                    "Erro inesperado em '%s' após %.2fs", address, time.monotonic() - t0
+                )
                 return {
                     "endereco": address,
                     "classificacao": None,
@@ -365,7 +390,15 @@ async def storefront_batch_addresses(req: BatchAddressesRequest):
             ),
         )
 
+    logger.info("Lote de %d endereço(s) recebido", len(addresses))
+    t0 = time.monotonic()
     results = await _process_addresses(addresses)
+    logger.info(
+        "Lote de %d endereço(s) concluído em %.2fs (%d com erro)",
+        len(addresses),
+        time.monotonic() - t0,
+        sum(1 for r in results if r.get("erro")),
+    )
     return {"total": len(results), "resultados": results}
 
 
