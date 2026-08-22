@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Foto da fachada</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  .sf-wrap {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 32px 16px;
+  }
+  .sf-wrap h1 {
+    font-size: 1.4rem;
+    margin-bottom: 16px;
+  }
+  .sf-form {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .sf-form input {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    font-size: 0.95rem;
+  }
+  .sf-form button {
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: none;
+    background: #111;
+    color: #fff;
+    cursor: pointer;
+  }
+  .sf-form button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .sf-result img {
+    width: 100%;
+    border-radius: 12px;
+    display: block;
+  }
+  .sf-status {
+    font-size: 0.9rem;
+    color: #666;
+    min-height: 1.2em;
+    margin-bottom: 12px;
+  }
+  .sf-status.error {
+    color: #c0392b;
+  }
+</style>
+</head>
+<body>
+  <div class="sf-wrap">
+    <h1>Foto da fachada (Street View)</h1>
+    <form id="sfForm" class="sf-form">
+      <input id="sfAddress" type="text" placeholder="Endereço completo do estabelecimento" required />
+      <button id="sfBtn" type="submit">Buscar foto</button>
+    </form>
+    <p id="sfStatus" class="sf-status"></p>
+    <div class="sf-result">
+      <img id="sfImage" alt="" hidden />
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('sfForm');
+    const input = document.getElementById('sfAddress');
+    const btn = document.getElementById('sfBtn');
+    const status = document.getElementById('sfStatus');
+    const img = document.getElementById('sfImage');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const address = input.value.trim();
+      if (!address) return;
+
+      btn.disabled = true;
+      status.textContent = 'Buscando...';
+      status.classList.remove('error');
+      img.hidden = true;
+
+      try {
+        const url = '/api/storefront-image?address=' + encodeURIComponent(address);
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data.detail || `Erro ${resp.status}`);
+        }
+        const blob = await resp.blob();
+        img.src = URL.createObjectURL(blob);
+        img.hidden = false;
+        status.textContent = '';
+      } catch (err) {
+        status.textContent = err.message || 'Falha ao buscar a imagem.';
+        status.classList.add('error');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
