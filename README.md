@@ -55,12 +55,17 @@ Fluxo no backend (`main.py`):
 
 A chave `GOOGLE_MAPS_API_KEY` fica só no servidor; o navegador nunca vê a chave, apenas o endereço da própria API (`/api/storefront-image`).
 
-## Score em lote via CSV
+## Score em lote via CSV (até milhares de endereços)
 
-Acesse `/storefront-csv.html` no deploy (ou `http://localhost:8000/storefront-csv.html` local), envie um arquivo `.csv` com uma coluna de endereço completo (`endereco`, `endereço`, `address` ou `logradouro` — se nenhuma dessas existir, usa a primeira coluna) e a página processa cada linha e mostra uma tabela com score comercial, classificação e a justificativa, com opção de baixar o resultado em CSV.
+Acesse `/storefront-csv.html` no deploy (ou `http://localhost:8000/storefront-csv.html` local), envie um arquivo `.csv` com uma coluna de endereço completo (`endereco`, `endereço`, `address` ou `logradouro` — se nenhuma dessas existir, usa a primeira coluna). A página processa o arquivo inteiro em lotes pequenos, mostrando uma barra de progresso e preenchendo a tabela conforme cada lote termina, com opção de baixar o resultado acumulado em CSV a qualquer momento (inclusive parcial, se cancelar no meio).
 
-Fluxo no backend (`main.py`):
-1. `POST /api/storefront-batch` — recebe o arquivo (`multipart/form-data`, campo `file`), detecta a coluna de endereço, e para cada linha repete o fluxo geocodificação → foto do Street View → classificação por visão computacional (mesma lógica de `/api/storefront-score`), com até 5 endereços em paralelo. Linhas que falham (endereço não encontrado, sem cobertura do Street View etc.) voltam com um campo `erro` em vez de derrubar o lote inteiro.
+Como isso evita o timeout da função serverless (60s na Vercel): em vez de mandar o CSV inteiro para o servidor processar de uma vez (o que expira com centenas/milhares de linhas), o navegador:
+1. Envia o arquivo uma única vez para `POST /api/storefront-batch-parse`, que só faz o parsing e devolve a lista de endereços.
+2. Divide essa lista em lotes de 15 endereços e chama `POST /api/storefront-batch-addresses` (JSON `{"enderecos": [...]}`) um lote de cada vez, sequencialmente — cada chamada processa poucos endereços em paralelo no backend (até 5 simultâneos) e sempre termina bem dentro do limite de tempo.
+3. Cada lote que falha (erro de rede, 504, etc.) é reenviado automaticamente até 3 vezes com backoff; se ainda assim falhar, só os endereços daquele lote ficam marcados com `erro`, sem travar o restante do arquivo.
+4. Os resultados vão sendo acrescentados à tabela e ao CSV de download em tempo real, lote a lote — dá pra acompanhar o progresso e cancelar a qualquer momento.
+
+`POST /api/storefront-batch` continua existindo (compatibilidade) para processar um CSV pequeno (até 20 endereços) de uma vez só, sem lotes.
 
 ## ⚠️ Segurança
 
