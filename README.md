@@ -7,6 +7,7 @@ Chat web (estilo Claude) conectado à API do Llama 3.3 70B via NVIDIA Integrate 
 - `main.py` — app FastAPI (na raiz do projeto, formato zero-config esperado pela Vercel) que guarda a chave da API em variável de ambiente, chama o modelo `meta/llama-3.3-70b-instruct` e faz streaming da resposta para o navegador. A chave **nunca** é exposta ao cliente.
 - `frontend/` — página estática (HTML/CSS/JS) com sidebar de conversas, renderização de markdown/código e streaming em tempo real, servida pelo próprio `main.py`.
 - `frontend/storefront.html` — página simples para digitar um endereço e ver a foto da fachada do estabelecimento (Street View). Consome `/api/storefront-image`.
+- `frontend/storefront-csv.html` — upload de um CSV com endereços e processamento em lote: cada linha recebe score comercial e classificação. Consome `/api/storefront-batch`.
 - `android/` — projeto Android separado (Gradle/Kotlin) que agenda o envio automático de mensagens no app oficial do Claude via Accessibility Service. Não depende do chat web acima; veja `android/README.md` para detalhes, limitações e como baixar o APK direto da aba Actions do GitHub.
 
 ## Como rodar localmente
@@ -53,6 +54,13 @@ Fluxo no backend (`main.py`):
 2. `GET /api/storefront-image?address=...` — repete a resolução acima e retorna os bytes da imagem (`image/jpeg`) direto do Street View Static API, já com o heading correto.
 
 A chave `GOOGLE_MAPS_API_KEY` fica só no servidor; o navegador nunca vê a chave, apenas o endereço da própria API (`/api/storefront-image`).
+
+## Score em lote via CSV
+
+Acesse `/storefront-csv.html` no deploy (ou `http://localhost:8000/storefront-csv.html` local), envie um arquivo `.csv` com uma coluna de endereço completo (`endereco`, `endereço`, `address` ou `logradouro` — se nenhuma dessas existir, usa a primeira coluna) e a página processa cada linha e mostra uma tabela com score comercial, classificação e a justificativa, com opção de baixar o resultado em CSV.
+
+Fluxo no backend (`main.py`):
+1. `POST /api/storefront-batch` — recebe o arquivo (`multipart/form-data`, campo `file`), detecta a coluna de endereço, e para cada linha repete o fluxo geocodificação → foto do Street View → classificação por visão computacional (mesma lógica de `/api/storefront-score`), com até 5 endereços em paralelo. Linhas que falham (endereço não encontrado, sem cobertura do Street View etc.) voltam com um campo `erro` em vez de derrubar o lote inteiro.
 
 ## ⚠️ Segurança
 
