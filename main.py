@@ -1,3 +1,5 @@
+import base64
+import json
 import math
 import os
 from pathlib import Path
@@ -17,6 +19,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 API_KEY = os.getenv("NVIDIA_API_KEY")
 BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 MODEL = os.getenv("GLM_MODEL", "z-ai/glm-5.2")
+VISION_MODEL = os.getenv("GLM_VISION_MODEL", MODEL)
 SYSTEM_PROMPT = "Você é um assistente útil, direto e honesto. Responda em português, a menos que o usuário escreva em outro idioma."
 
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
@@ -180,6 +183,100 @@ async def storefront_image(
         img_resp.raise_for_status()
 
     return Response(content=img_resp.content, media_type="image/jpeg")
+
+
+SCORE_SYSTEM_PROMPT = (
+    "Você analisa fotos de fachadas capturadas do Google Street View para apoiar "
+    "verificação de endereço. Responda SOMENTE com um JSON válido, sem markdown, "
+    "no formato exato: "
+    '{"classificacao": "comercial" | "residencial" | "indeterminado", '
+    '"score_comercial": <inteiro 0-100, onde 100 = certamente comercial>, '
+    '"porta_atendimento_visivel": true | false, '
+    '"porta_aberta": true | false | null, '
+    '"justificativa": "<até 2 frases em português>"}. '
+    "score_comercial mede a probabilidade de ser um estabelecimento comercial "
+    "(loja, restaurante, escritório, consultório etc.) e não uma residência. "
+    "porta_atendimento_visivel indica se há uma porta de entrada voltada para a "
+    "rua que pareça ser de atendimento ao público (vitrine, letreiro, entrada de "
+    "loja). porta_aberta indica se essa porta está aberta na foto; use null se "
+    "não houver porta de atendimento visível ou não for possível dizer."
+)
+
+
+async def _classify_storefront_image(image_bytes: bytes) -> dict:
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    data_url = f"data:image/jpeg;base64,{image_b64}"
+
+    completion = client.chat.completions.create(
+        model=VISION_MODEL,
+        temperature=0,
+        max_tokens=400,
+        messages=[
+            {"role": "system", "content": SCORE_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Classifique esta fachada segundo as regras informadas.",
+                    },
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            },
+        ],
+    )
+
+    raw = completion.choices[0].message.content or ""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+
+    try:
+        result = json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Resposta do modelo de visão não é um JSON válido: {exc}",
+        ) from exc
+
+    return result
+
+
+@app.get("/api/storefront-score")
+async def storefront_score(
+    address: str = Query(..., min_length=3),
+    size: str = "640x400",
+    fov: int = 80,
+    pitch: int = 0,
+):
+    """Busca a foto da fachada e retorna um score comercial x residencial."""
+    view = await _resolve_storefront_view(address)
+
+    async with httpx.AsyncClient(timeout=15) as http:
+        img_resp = await http.get(
+            "https://maps.googleapis.com/maps/api/streetview",
+            params={
+                "size": size,
+                "location": f"{view['target_lat']},{view['target_lng']}",
+                "heading": view["heading"],
+                "fov": fov,
+                "pitch": pitch,
+                "source": "outdoor",
+                "key": GOOGLE_MAPS_API_KEY,
+            },
+        )
+        img_resp.raise_for_status()
+
+    classification = await _classify_storefront_image(img_resp.content)
+
+    return {
+        **view,
+        "image_url": f"/api/storefront-image?address={address}",
+        **classification,
+    }
 
 
 frontend_dir = Path(__file__).resolve().parent / "frontend"

@@ -53,6 +53,37 @@
   .sf-status.error {
     color: #c0392b;
   }
+  .sf-score {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: #f4f4f4;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .sf-score .sf-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #fff;
+    margin-right: 6px;
+  }
+  .sf-badge.comercial { background: #2563eb; }
+  .sf-badge.residencial { background: #16a34a; }
+  .sf-badge.indeterminado { background: #71717a; }
+  .sf-bar {
+    height: 8px;
+    border-radius: 999px;
+    background: #e5e5e5;
+    overflow: hidden;
+    margin: 8px 0;
+  }
+  .sf-bar-fill {
+    height: 100%;
+    background: #2563eb;
+  }
 </style>
 </head>
 <body>
@@ -65,6 +96,7 @@
     <p id="sfStatus" class="sf-status"></p>
     <div class="sf-result">
       <img id="sfImage" alt="" hidden />
+      <div id="sfScore" class="sf-score" hidden></div>
     </div>
   </div>
 
@@ -74,6 +106,30 @@
     const btn = document.getElementById('sfBtn');
     const status = document.getElementById('sfStatus');
     const img = document.getElementById('sfImage');
+    const scoreBox = document.getElementById('sfScore');
+
+    function renderScore(data) {
+      const classe = (data.classificacao || 'indeterminado').toLowerCase();
+      const score = typeof data.score_comercial === 'number' ? data.score_comercial : null;
+      const portaVisivel = data.porta_atendimento_visivel;
+      const portaAberta = data.porta_aberta;
+
+      let portaTexto = 'Nenhuma porta de atendimento identificada.';
+      if (portaVisivel) {
+        if (portaAberta === true) portaTexto = 'Porta de atendimento visível e ABERTA.';
+        else if (portaAberta === false) portaTexto = 'Porta de atendimento visível e fechada.';
+        else portaTexto = 'Porta de atendimento visível (estado indeterminado).';
+      }
+
+      scoreBox.innerHTML = `
+        <span class="sf-badge ${classe}">${classe}</span>
+        <span>Score comercial: ${score !== null ? score + '/100' : 'N/D'}</span>
+        <div class="sf-bar"><div class="sf-bar-fill" style="width:${score ?? 0}%"></div></div>
+        <div>${portaTexto}</div>
+        ${data.justificativa ? `<div style="margin-top:6px;color:#555">${data.justificativa}</div>` : ''}
+      `;
+      scoreBox.hidden = false;
+    }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -84,6 +140,7 @@
       status.textContent = 'Buscando...';
       status.classList.remove('error');
       img.hidden = true;
+      scoreBox.hidden = true;
 
       try {
         const url = '/api/storefront-image?address=' + encodeURIComponent(address);
@@ -95,6 +152,14 @@
         const blob = await resp.blob();
         img.src = URL.createObjectURL(blob);
         img.hidden = false;
+        status.textContent = 'Analisando fachada...';
+
+        const scoreResp = await fetch('/api/storefront-score?address=' + encodeURIComponent(address));
+        const scoreData = await scoreResp.json();
+        if (!scoreResp.ok) {
+          throw new Error(scoreData.detail || `Erro ${scoreResp.status} ao analisar a foto.`);
+        }
+        renderScore(scoreData);
         status.textContent = '';
       } catch (err) {
         status.textContent = err.message || 'Falha ao buscar a imagem.';
