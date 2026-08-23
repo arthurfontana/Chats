@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cortar Áudio</title>
+<link rel="stylesheet" href="style.css" />
+<style>
+  .cut-wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px 16px 64px;
+  }
+  .cut-wrap h1 {
+    font-size: 1.4rem;
+    margin-bottom: 4px;
+  }
+  .cut-wrap .subtitle {
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    font-size: 0.9rem;
+  }
+  .back-link {
+    display: inline-block;
+    margin-bottom: 20px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+  .back-link:hover { color: var(--text-main); }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: #fff;
+  }
+  .drop-zone input { display: none; }
+
+  .editor { display: none; margin-top: 24px; }
+  .editor.active { display: block; }
+
+  .waveform-box {
+    position: relative;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    user-select: none;
+  }
+  canvas#waveform {
+    display: block;
+    width: 100%;
+    height: 140px;
+    cursor: text;
+  }
+  .selection-overlay {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: rgba(193, 95, 60, 0.18);
+    border-left: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    pointer-events: none;
+  }
+  .playhead {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #333;
+    pointer-events: none;
+  }
+  .handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 14px;
+    margin-left: -7px;
+    cursor: ew-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+  }
+  .handle::after {
+    content: "";
+    width: 4px;
+    height: 40px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  .controls-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .time-fields {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .time-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+  .time-field input {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    width: 150px;
+  }
+  .step-btns {
+    display: flex;
+    gap: 4px;
+  }
+  button {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text-main);
+    cursor: pointer;
+  }
+  button:hover { background: #f5f5f5; }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  button.primary:hover { background: var(--accent-hover); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .zoom-row { display: flex; align-items: center; gap: 8px; }
+  .zoom-row input[type="range"] { width: 120px; }
+
+  .export-row {
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .status {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+  .status.error { color: #b3261e; }
+  .status.ok { color: #1a7f37; }
+
+  audio { width: 100%; margin-top: 16px; }
+
+  .progress {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+    overflow: hidden;
+    display: none;
+  }
+  .progress.active { display: block; }
+  .progress-bar {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.2s ease;
+  }
+</style>
+</head>
+<body>
+  <div class="cut-wrap">
+    <a class="back-link" href="index.html">&larr; Início</a>
+    <h1>✂️ Cortar Áudio</h1>
+    <div class="subtitle">Envie um áudio, escolha o trecho e salve como .opus para tocar direto na conversa do WhatsApp.</div>
+
+    <div class="drop-zone" id="dropZone">
+      <div id="dropLabel">Arraste um arquivo de áudio aqui ou clique para escolher<br><small>.opus, .ogg, .mp3, .m4a, .wav...</small></div>
+      <input type="file" id="fileInput" accept="audio/*,.opus" />
+    </div>
+
+    <div class="editor" id="editor">
+      <div class="waveform-box" id="waveformBox">
+        <canvas id="waveform"></canvas>
+        <div class="selection-overlay" id="selectionOverlay"></div>
+        <div class="handle" id="handleStart"></div>
+        <div class="handle" id="handleEnd"></div>
+        <div class="playhead" id="playhead"></div>
+      </div>
+
+      <div class="controls-row">
+        <button id="playBtn">▶ Ouvir seleção</button>
+        <button id="playAllBtn">▶ Ouvir tudo</button>
+        <div class="zoom-row">
+          <span style="font-size:0.82rem;color:var(--text-muted)">Zoom</span>
+          <input type="range" id="zoomRange" min="1" max="20" step="0.5" value="1" />
+        </div>
+      </div>
+
+      <div class="time-fields">
+        <div class="time-field">
+          <label for="startInput">Início do corte</label>
+          <input type="text" id="startInput" value="00:00.000" />
+          <div class="step-btns">
+            <button data-target="start" data-delta="-0.1">-0.1s</button>
+            <button data-target="start" data-delta="-0.01">-10ms</button>
+            <button data-target="start" data-delta="0.01">+10ms</button>
+            <button data-target="start" data-delta="0.1">+0.1s</button>
+          </div>
+        </div>
+        <div class="time-field">
+          <label for="endInput">Fim do corte</label>
+          <input type="text" id="endInput" value="00:00.000" />
+          <div class="step-btns">
+            <button data-target="end" data-delta="-0.1">-0.1s</button>
+            <button data-target="end" data-delta="-0.01">-10ms</button>
+            <button data-target="end" data-delta="0.01">+10ms</button>
+            <button data-target="end" data-delta="0.1">+0.1s</button>
+          </div>
+        </div>
+        <div class="time-field">
+          <label>Duração selecionada</label>
+          <input type="text" id="durationLabel" value="0:00.000" readonly />
+        </div>
+      </div>
+
+      <div class="export-row">
+        <button class="primary" id="exportBtn">💾 Salvar corte (.opus)</button>
+        <button id="resetBtn">Recomeçar</button>
+        <div class="status" id="status"></div>
+      </div>
+      <div class="progress" id="progress"><div class="progress-bar" id="progressBar"></div></div>
+
+      <audio id="resultAudio" controls style="display:none"></audio>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+  <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+  <script>
+  (function () {
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const editor = document.getElementById('editor');
+    const canvas = document.getElementById('waveform');
+    const ctx2d = canvas.getContext('2d');
+    const waveformBox = document.getElementById('waveformBox');
+    const selectionOverlay = document.getElementById('selectionOverlay');
+    const handleStart = document.getElementById('handleStart');
+    const handleEnd = document.getElementById('handleEnd');
+    const playhead = document.getElementById('playhead');
+    const startInput = document.getElementById('startInput');
+    const endInput = document.getElementById('endInput');
+    const durationLabel = document.getElementById('durationLabel');
+    const playBtn = document.getElementById('playBtn');
+    const playAllBtn = document.getElementById('playAllBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const statusEl = document.getElementById('status');
+    const zoomRange = document.getElementById('zoomRange');
+    const progress = document.getElementById('progress');
+    const progressBar = document.getElementById('progressBar');
+    const resultAudio = document.getElementById('resultAudio');
+
+    let audioCtx = null;
+    let audioBuffer = null;
+    let originalFile = null;
+    let peaks = null; // downsampled min/max pairs for drawing
+    let duration = 0;
+    let selStart = 0;
+    let selEnd = 0;
+    let zoom = 1;
+    let scrollOffset = 0; // in seconds, when zoomed
+    let dragTarget = null; // 'start' | 'end' | 'seek'
+    let currentSource = null;
+    let playStartCtxTime = 0;
+    let playStartOffset = 0;
+    let playEndOffset = 0;
+    let rafId = null;
+    let ffmpeg = null;
+
+    function fmtTime(t) {
+      const m = Math.floor(t / 60);
+      const s = t - m * 60;
+      return String(m).padStart(2, '0') + ':' + s.toFixed(3).padStart(6, '0');
+    }
+
+    function parseTime(str) {
+      const parts = str.trim().split(':');
+      if (parts.length === 2) {
+        const m = parseFloat(parts[0]) || 0;
+        const s = parseFloat(parts[1]) || 0;
+        return m * 60 + s;
+      }
+      return parseFloat(str) || 0;
+    }
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    // ---- File loading ----
+    ['dragenter', 'dragover'].forEach(evt =>
+      dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add('dragover'); })
+    );
+    ['dragleave', 'drop'].forEach(evt =>
+      dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove('dragover'); })
+    );
+    dropZone.addEventListener('drop', e => {
+      const f = e.dataTransfer.files[0];
+      if (f) loadFile(f);
+    });
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) loadFile(fileInput.files[0]);
+    });
+
+    async function loadFile(file) {
+      originalFile = file;
+      setStatus('Carregando áudio...', '');
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const arrayBuf = await file.arrayBuffer();
+        audioBuffer = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+        duration = audioBuffer.duration;
+        selStart = 0;
+        selEnd = duration;
+        zoom = 1;
+        scrollOffset = 0;
+        buildPeaks();
+        editor.classList.add('active');
+        resizeCanvas();
+        draw();
+        updateFieldsFromSelection();
+        setStatus('', '');
+      } catch (err) {
+        console.error(err);
+        setStatus('Não foi possível decodificar este arquivo de áudio no navegador.', 'error');
+      }
+    }
+
+    function buildPeaks() {
+      const raw = audioBuffer.getChannelData(0);
+      const samplesPerPixel = 2000; // base resolution, redone on draw based on width/zoom
+      peaks = raw; // keep raw reference; downsample dynamically in draw()
+    }
+
+    function resizeCanvas() {
+      const rect = waveformBox.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = 140 * dpr;
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = '140px';
+      ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    window.addEventListener('resize', () => { if (audioBuffer) { resizeCanvas(); draw(); } });
+
+    function visibleRange() {
+      const span = duration / zoom;
+      let start = scrollOffset;
+      start = clamp(start, 0, Math.max(0, duration - span));
+      return { start, end: Math.min(duration, start + span) };
+    }
+
+    function draw() {
+      const rect = waveformBox.getBoundingClientRect();
+      const w = rect.width;
+      const h = 140;
+      ctx2d.clearRect(0, 0, w, h);
+      ctx2d.fillStyle = '#fff';
+      ctx2d.fillRect(0, 0, w, h);
+
+      const { start: vStart, end: vEnd } = visibleRange();
+      const sampleRate = audioBuffer.sampleRate;
+      const data = peaks;
+      const startIdx = Math.floor(vStart * sampleRate);
+      const endIdx = Math.floor(vEnd * sampleRate);
+      const totalSamples = endIdx - startIdx;
+      const samplesPerPx = Math.max(1, Math.floor(totalSamples / w));
+
+      ctx2d.strokeStyle = '#C15F3C';
+      ctx2d.lineWidth = 1;
+      ctx2d.beginPath();
+      const mid = h / 2;
+      for (let x = 0; x < w; x++) {
+        const idx0 = startIdx + x * samplesPerPx;
+        let min = 1, max = -1;
+        for (let i = 0; i < samplesPerPx; i++) {
+          const s = data[idx0 + i];
+          if (s === undefined) continue;
+          if (s < min) min = s;
+          if (s > max) max = s;
+        }
+        if (min > max) { min = 0; max = 0; }
+        ctx2d.moveTo(x, mid + min * mid * 0.95);
+        ctx2d.lineTo(x, mid + max * mid * 0.95);
+      }
+      ctx2d.stroke();
+
+      // center line
+      ctx2d.strokeStyle = '#eee';
+      ctx2d.beginPath();
+      ctx2d.moveTo(0, mid);
+      ctx2d.lineTo(w, mid);
+      ctx2d.stroke();
+
+      positionOverlay();
+    }
+
+    function timeToX(t) {
+      const { start: vStart, end: vEnd } = visibleRange();
+      const rect = waveformBox.getBoundingClientRect();
+      const w = rect.width;
+      return ((t - vStart) / (vEnd - vStart)) * w;
+    }
+    function xToTime(x) {
+      const { start: vStart, end: vEnd } = visibleRange();
+      const rect = waveformBox.getBoundingClientRect();
+      const w = rect.width;
+      return vStart + (x / w) * (vEnd - vStart);
+    }
+
+    function positionOverlay() {
+      const x1 = timeToX(selStart);
+      const x2 = timeToX(selEnd);
+      const left = Math.min(x1, x2);
+      const width = Math.max(0, Math.abs(x2 - x1));
+      selectionOverlay.style.left = left + 'px';
+      selectionOverlay.style.width = width + 'px';
+      handleStart.style.left = x1 + 'px';
+      handleEnd.style.left = x2 + 'px';
+    }
+
+    function updateFieldsFromSelection() {
+      startInput.value = fmtTime(selStart);
+      endInput.value = fmtTime(selEnd);
+      durationLabel.value = fmtTime(Math.max(0, selEnd - selStart));
+      positionOverlay();
+    }
+
+    // ---- Dragging handles / selecting on waveform ----
+    function pointerX(e) {
+      const rect = waveformBox.getBoundingClientRect();
+      return clamp((e.touches ? e.touches[0].clientX : e.clientX) - rect.left, 0, rect.width);
+    }
+
+    handleStart.addEventListener('pointerdown', e => { dragTarget = 'start'; e.preventDefault(); });
+    handleEnd.addEventListener('pointerdown', e => { dragTarget = 'end'; e.preventDefault(); });
+
+    waveformBox.addEventListener('pointerdown', e => {
+      if (e.target === handleStart || e.target === handleEnd) return;
+      const t = xToTime(pointerX(e));
+      // click near closer handle moves that handle; otherwise start new selection drag from nearest edge
+      const dStart = Math.abs(t - selStart);
+      const dEnd = Math.abs(t - selEnd);
+      if (dStart < dEnd) {
+        selStart = clamp(t, 0, selEnd);
+        dragTarget = 'start';
+      } else {
+        selEnd = clamp(t, selStart, duration);
+        dragTarget = 'end';
+      }
+      updateFieldsFromSelection();
+    });
+
+    window.addEventListener('pointermove', e => {
+      if (!dragTarget || !audioBuffer) return;
+      const t = xToTime(pointerX(e));
+      if (dragTarget === 'start') {
+        selStart = clamp(t, 0, selEnd);
+      } else if (dragTarget === 'end') {
+        selEnd = clamp(t, selStart, duration);
+      }
+      updateFieldsFromSelection();
+    });
+    window.addEventListener('pointerup', () => { dragTarget = null; });
+
+    zoomRange.addEventListener('input', () => {
+      zoom = parseFloat(zoomRange.value);
+      const { start } = visibleRange();
+      scrollOffset = start;
+      draw();
+    });
+    waveformBox.addEventListener('wheel', e => {
+      if (!audioBuffer || zoom <= 1) return;
+      e.preventDefault();
+      const span = duration / zoom;
+      scrollOffset = clamp(scrollOffset + e.deltaY * 0.001 * span, 0, Math.max(0, duration - span));
+      draw();
+    }, { passive: false });
+
+    // ---- Manual time inputs ----
+    startInput.addEventListener('change', () => {
+      selStart = clamp(parseTime(startInput.value), 0, selEnd);
+      updateFieldsFromSelection();
+    });
+    endInput.addEventListener('change', () => {
+      selEnd = clamp(parseTime(endInput.value), selStart, duration);
+      updateFieldsFromSelection();
+    });
+    document.querySelectorAll('.step-btns button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const delta = parseFloat(btn.dataset.delta);
+        if (btn.dataset.target === 'start') {
+          selStart = clamp(selStart + delta, 0, selEnd);
+        } else {
+          selEnd = clamp(selEnd + delta, selStart, duration);
+        }
+        updateFieldsFromSelection();
+      });
+    });
+
+    // ---- Playback ----
+    function stopPlayback() {
+      if (currentSource) {
+        try { currentSource.stop(); } catch (e) {}
+        currentSource = null;
+      }
+      if (rafId) cancelAnimationFrame(rafId);
+      playhead.style.display = 'none';
+    }
+
+    function playRange(from, to) {
+      stopPlayback();
+      if (!audioCtx) return;
+      audioCtx.resume();
+      const src = audioCtx.createBufferSource();
+      src.buffer = audioBuffer;
+      src.connect(audioCtx.destination);
+      src.start(0, from, Math.max(0.01, to - from));
+      currentSource = src;
+      playStartCtxTime = audioCtx.currentTime;
+      playStartOffset = from;
+      playEndOffset = to;
+      playhead.style.display = 'block';
+      const step = () => {
+        const elapsed = audioCtx.currentTime - playStartCtxTime;
+        const t = playStartOffset + elapsed;
+        if (t >= playEndOffset || !currentSource) {
+          stopPlayback();
+          return;
+        }
+        playhead.style.left = timeToX(t) + 'px';
+        rafId = requestAnimationFrame(step);
+      };
+      rafId = requestAnimationFrame(step);
+      src.onended = () => { playhead.style.display = 'none'; };
+    }
+
+    playBtn.addEventListener('click', () => playRange(selStart, selEnd));
+    playAllBtn.addEventListener('click', () => playRange(0, duration));
+
+    // ---- Export via ffmpeg.wasm to Opus (WhatsApp voice-note compatible) ----
+    function setStatus(msg, kind) {
+      statusEl.textContent = msg;
+      statusEl.className = 'status' + (kind ? ' ' + kind : '');
+    }
+
+    async function ensureFfmpeg() {
+      if (ffmpeg && ffmpeg.loaded) return ffmpeg;
+      setStatus('Carregando codificador de áudio (primeira vez pode demorar)...', '');
+      const { FFmpeg } = FFmpegWASM;
+      const { toBlobURL } = FFmpegUtil;
+      ffmpeg = new FFmpeg();
+      ffmpeg.on('progress', ({ progress: p }) => {
+        progress.classList.add('active');
+        progressBar.style.width = Math.round(clamp(p, 0, 1) * 100) + '%';
+      });
+      const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+      await ffmpeg.load({
+        coreURL: await toBlobURL(base + '/ffmpeg-core.js', 'text/javascript'),
+        wasmURL: await toBlobURL(base + '/ffmpeg-core.wasm', 'application/wasm'),
+      });
+      return ffmpeg;
+    }
+
+    exportBtn.addEventListener('click', async () => {
+      if (!originalFile || selEnd <= selStart) {
+        setStatus('Selecione um trecho válido antes de exportar.', 'error');
+        return;
+      }
+      exportBtn.disabled = true;
+      try {
+        const ff = await ensureFfmpeg();
+        setStatus('Cortando e codificando em .opus...', '');
+        progress.classList.add('active');
+        progressBar.style.width = '0%';
+
+        const inName = 'input' + (originalFile.name.match(/\.[a-z0-9]+$/i)?.[0] || '.bin');
+        const outName = 'corte.opus';
+        const data = await originalFile.arrayBuffer();
+        await ff.writeFile(inName, new Uint8Array(data));
+
+        await ff.exec([
+          '-i', inName,
+          '-ss', selStart.toFixed(3),
+          '-to', selEnd.toFixed(3),
+          '-c:a', 'libopus',
+          '-b:a', '32k',
+          '-vbr', 'on',
+          '-application', 'voip',
+          '-ar', '48000',
+          '-ac', '1',
+          outName,
+        ]);
+
+        const outData = await ff.readFile(outName);
+        const blob = new Blob([outData.buffer], { type: 'audio/ogg; codecs=opus' });
+        const url = URL.createObjectURL(blob);
+
+        resultAudio.src = url;
+        resultAudio.style.display = 'block';
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'corte.opus';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        setStatus('Corte salvo! Envie o arquivo .opus baixado pelo WhatsApp — ele toca como mensagem de voz.', 'ok');
+      } catch (err) {
+        console.error(err);
+        setStatus('Erro ao exportar o áudio: ' + (err.message || err), 'error');
+      } finally {
+        exportBtn.disabled = false;
+        progress.classList.remove('active');
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      stopPlayback();
+      editor.classList.remove('active');
+      resultAudio.style.display = 'none';
+      resultAudio.src = '';
+      fileInput.value = '';
+      originalFile = null;
+      audioBuffer = null;
+      setStatus('', '');
+    });
+  })();
+  </script>
+</body>
+</html>
