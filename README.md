@@ -9,6 +9,7 @@ Chat web (estilo Claude) conectado à API do Llama 3.3 70B via NVIDIA Integrate 
 - `frontend/storefront.html` — página simples para digitar um endereço e ver a foto da fachada do estabelecimento (Street View). Consome `/api/storefront-image`.
 - `frontend/storefront-csv.html` — upload de um CSV com endereços e processamento em lote: cada linha recebe score comercial e classificação. Consome `/api/storefront-batch`.
 - `android/` — projeto Android separado (Gradle/Kotlin) que agenda o envio automático de mensagens no app oficial do Claude via Accessibility Service. Não depende do chat web acima; veja `android/README.md` para detalhes, limitações e como baixar o APK direto da aba Actions do GitHub.
+- `enriquecimento-offline/` — script Python standalone (sem servidor web) que reaproveita a mesma lógica de geocodificação + Street View + classificação por IA de visão do chat web, mas roda 100% localmente via um `.bat`: você aponta para um CSV de endereços internos e recebe um CSV enriquecido de volta. Veja `enriquecimento-offline/LEIA-ME.md`.
 
 ## Como rodar localmente
 
@@ -66,6 +67,29 @@ Como isso evita o timeout da função serverless (60s na Vercel): em vez de mand
 4. Os resultados vão sendo acrescentados à tabela e ao CSV de download em tempo real, lote a lote — dá pra acompanhar o progresso e cancelar a qualquer momento.
 
 `POST /api/storefront-batch` continua existindo (compatibilidade) para processar um CSV pequeno (até 20 endereços) de uma vez só, sem lotes.
+
+## Enriquecimento offline (sem servidor web)
+
+Para quem precisa rodar o enriquecimento fora da Vercel — por exemplo numa
+máquina corporativa, sem expor nada na web, contra bases de dados internas —
+existe `enriquecimento-offline/`, um script Python standalone que reaproveita
+a mesma lógica de geocodificação + Street View + classificação por IA de
+visão do `main.py`, mas:
+
+- não depende de FastAPI/Vercel nem de nenhuma página web: você edita um
+  `.bat`, aponta para o CSV de entrada e roda localmente;
+- não tem o limite de 20 linhas por chamada (existia só por causa do timeout
+  serverless da Vercel) — processa o CSV inteiro de uma vez, em paralelo;
+- calibrou o prompt de classificação para gerar um `score_comercial` gradual
+  (0-100 com faixas explícitas) em vez de só 0 ou 100, e adicionou os campos
+  `confianca` (alta/media/baixa) e `motivo_incerteza`, para refletir os casos
+  em que a classificação não é 100% certa (imagem ruim, geocodificação
+  imprecisa, painorama distante do endereço, etc.).
+
+Veja `enriquecimento-offline/LEIA-ME.md` para o passo a passo completo de
+configuração e execução. Esse diretório é o ponto de partida para evoluir
+esse fluxo separadamente do chat web (ex.: outros tipos de classificação,
+outras fontes de dados, output em outros formatos).
 
 ## ⚠️ Segurança
 
