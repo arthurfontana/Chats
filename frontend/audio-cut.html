@@ -254,8 +254,8 @@
     </div>
   </div>
 
-  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-  <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+  <script src="vendor/ffmpeg/ffmpeg.js"></script>
+  <script src="vendor/ffmpeg-util/index.js"></script>
   <script>
   (function () {
     const dropZone = document.getElementById('dropZone');
@@ -584,13 +584,15 @@
         progress.classList.add('active');
         progressBar.style.width = Math.round(clamp(p, 0, 1) * 100) + '%';
       });
-      const base = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-      const ffmpegBase = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd';
-      await ffmpeg.load({
-        coreURL: await toBlobURL(base + '/ffmpeg-core.js', 'text/javascript'),
-        wasmURL: await toBlobURL(base + '/ffmpeg-core.wasm', 'application/wasm'),
-        classWorkerURL: await toBlobURL(ffmpegBase + '/814.ffmpeg.js', 'text/javascript'),
-      });
+      const base = 'vendor/ffmpeg-core';
+      try {
+        await ffmpeg.load({
+          coreURL: await toBlobURL(base + '/ffmpeg-core.js', 'text/javascript'),
+          wasmURL: await toBlobURL(base + '/ffmpeg-core.wasm', 'application/wasm'),
+        });
+      } catch (err) {
+        throw new Error('Não foi possível carregar o codificador de áudio (ffmpeg-core.js). Verifique sua conexão e tente novamente. Detalhe: ' + (err.message || err));
+      }
       return ffmpeg;
     }
 
