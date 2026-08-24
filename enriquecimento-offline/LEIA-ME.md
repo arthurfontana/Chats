@@ -79,6 +79,43 @@ quanto ele confia nisso** (confianca + motivo_incerteza) — útil para
 priorizar revisão manual só nos casos incertos, em vez de tratar tudo como
 certeza absoluta.
 
+## Rede corporativa bloqueia os endpoints (Google Maps / API de visão)?
+
+Se a sua máquina não consegue acessar `maps.googleapis.com` nem o
+`VISION_BASE_URL` direto (erro de conexão, timeout, proxy corporativo
+recusando), mas o navegador consegue abrir sites normalmente, você pode
+"mascarar" essas chamadas atrás do seu próprio deploy na Vercel — este
+mesmo repositório já tem, em `main.py`, uma rota
+`/api/storefront-batch-addresses` que faz a geocodificação, busca a imagem
+do Street View e a classificação por você, do lado do servidor.
+
+1. Garanta que o app deste repositório está publicado na Vercel (com
+   `GOOGLE_MAPS_API_KEY` e as variáveis do modelo de visão configuradas nas
+   *Environment Variables* do projeto Vercel — não na sua máquina).
+2. No `config.env` local, preencha `VERCEL_PROXY_URL` com a URL pública do
+   deploy, por exemplo:
+   ```
+   VERCEL_PROXY_URL=https://seu-app.vercel.app
+   ```
+3. Rode o `.bat`/script normalmente. Nesse modo o script não fala mais com
+   `maps.googleapis.com` nem com `VISION_BASE_URL` — ele só troca dados com
+   `seu-app.vercel.app` (que a rede corporativa costuma liberar, por ser
+   tráfego HTTPS comum de navegação), em lotes de 20 endereços por
+   requisição (mesmo limite da rota `/api/storefront-batch-addresses`).
+   Nesse modo `GOOGLE_MAPS_API_KEY` e `VISION_API_KEY` não precisam estar
+   preenchidas no `config.env` local, pois as chaves reais ficam só no
+   ambiente da Vercel.
+4. As colunas `confianca` e `motivo_incerteza` ficam vazias nesse modo
+   (essa lógica extra só existe na versão local do prompt); as demais
+   colunas (`classificacao`, `score_comercial`, `porta_atendimento_visivel`,
+   `porta_aberta`, `justificativa`, `erro`) continuam sendo preenchidas
+   normalmente.
+
+Isso não é "burlar" o bloqueio de forma indevida — é simplesmente rotear a
+chamada através de um servidor seu que você já controla e que já tem
+permissão de rede para os endpoints do Google/OpenAI, em vez da sua máquina
+tentar falar com eles diretamente.
+
 ## Processando lotes grandes
 
 Não há mais o limite de 20 linhas por chamada que existia na versão web

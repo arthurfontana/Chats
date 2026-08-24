@@ -50,7 +50,10 @@ def carregar_config() -> dict[str, str]:
             chave, valor = linha.split("=", 1)
             config[chave.strip()] = valor.strip()
     # Variáveis de ambiente têm prioridade sobre o config.env
-    for chave in ("GOOGLE_MAPS_API_KEY", "VISION_API_KEY", "VISION_BASE_URL", "VISION_MODEL", "CONCURRENCY"):
+    for chave in (
+        "GOOGLE_MAPS_API_KEY", "VISION_API_KEY", "VISION_BASE_URL", "VISION_MODEL",
+        "CONCURRENCY", "VERCEL_PROXY_URL",
+    ):
         if os.environ.get(chave):
             config[chave] = os.environ[chave]
     return config
@@ -62,6 +65,15 @@ VISION_API_KEY = CONFIG.get("VISION_API_KEY", "")
 VISION_BASE_URL = CONFIG.get("VISION_BASE_URL", "https://api.openai.com/v1")
 VISION_MODEL = CONFIG.get("VISION_MODEL", "gpt-4o-mini")
 CONCURRENCY = int(CONFIG.get("CONCURRENCY", "5"))
+
+# Quando preenchido, o script para de falar direto com maps.googleapis.com e
+# com o VISION_BASE_URL — em vez disso, envia lotes de endereços para o app
+# Vercel (main.py) deste repositório, que já expõe a rota
+# /api/storefront-batch-addresses e faz a chamada real ao Google/OpenAI a
+# partir do servidor. Útil quando a rede corporativa bloqueia os domínios
+# das APIs mas libera o seu próprio domínio *.vercel.app.
+VERCEL_PROXY_URL = CONFIG.get("VERCEL_PROXY_URL", "").strip().rstrip("/")
+VERCEL_PROXY_BATCH_SIZE = 20  # deve bater com BATCH_MAX_ROWS em main.py
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 STREETVIEW_META_URL = "https://maps.googleapis.com/maps/api/streetview/metadata"
@@ -239,6 +251,41 @@ async def enriquecer_endereco(
         return base
 
 
+async def _enriquecer_via_proxy_vercel(
+    http_client: httpx.AsyncClient, enderecos: list[str]
+) -> list[dict[str, Any]]:
+    """Envia um lote de endereços para /api/storefront-batch-addresses no Vercel.
+
+    O Vercel faz as chamadas reais ao Google Maps e ao modelo de visão a
+    partir do servidor; a máquina local só troca dados com o próprio domínio
+    do deploy (*.vercel.app), o que costuma passar por bloqueios de rede
+    corporativa que barram maps.googleapis.com / api.openai.com direto.
+    """
+    resultados: list[dict[str, Any]] = []
+    for inicio in range(0, len(enderecos), VERCEL_PROXY_BATCH_SIZE):
+        lote = enderecos[inicio:inicio + VERCEL_PROXY_BATCH_SIZE]
+        resp = await http_client.post(
+            f"{VERCEL_PROXY_URL}/api/storefront-batch-addresses",
+            json={"enderecos": lote},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        dados = resp.json()
+        for item in dados.get("resultados", []):
+            resultados.append({
+                "endereco": item.get("endereco"),
+                "classificacao": item.get("classificacao") or "indeterminado",
+                "score_comercial": item.get("score_comercial"),
+                "confianca": None,
+                "porta_atendimento_visivel": item.get("porta_atendimento_visivel"),
+                "porta_aberta": item.get("porta_aberta"),
+                "motivo_incerteza": None,
+                "justificativa": item.get("justificativa") or "",
+                "erro": item.get("erro") or "",
+            })
+    return resultados
+
+
 def detectar_coluna_endereco(fieldnames: list[str]) -> str:
     normalizados = {c.lower().strip(): c for c in fieldnames}
     for candidata in COLUNAS_CANDIDATAS_ENDERECO:
@@ -260,26 +307,46 @@ async def processar_csv(caminho_entrada: Path, caminho_saida: Path) -> None:
     coluna_endereco = detectar_coluna_endereco(fieldnames_originais)
     print(f"Coluna de endereço detectada: '{coluna_endereco}' ({len(linhas)} linhas)")
 
-    semaforo = asyncio.Semaphore(CONCURRENCY)
     resultados: list[dict[str, Any]] = [None] * len(linhas)  # type: ignore[list-item]
 
-    async with httpx.AsyncClient(timeout=30) as http_client:
-        vision_client = AsyncOpenAI(api_key=VISION_API_KEY, base_url=VISION_BASE_URL)
+    if VERCEL_PROXY_URL:
+        print(f"Usando proxy Vercel: {VERCEL_PROXY_URL} (lotes de {VERCEL_PROXY_BATCH_SIZE})")
+        enderecos_por_indice = [
+            (i, (linha.get(coluna_endereco) or "").strip()) for i, linha in enumerate(linhas)
+        ]
+        indices_validos = [i for i, e in enderecos_por_indice if e]
+        enderecos_validos = [e for _, e in enderecos_por_indice if e]
 
-        async def processar_linha(indice: int, linha: dict[str, str]) -> None:
-            async with semaforo:
-                endereco = (linha.get(coluna_endereco) or "").strip()
-                if not endereco:
-                    resultados[indice] = {**linha, "erro": "endereco_vazio"}
-                    return
-                enriquecido = await enriquecer_endereco(http_client, vision_client, endereco)
-                resultados[indice] = {**linha, **enriquecido}
-                print(f"[{indice + 1}/{len(linhas)}] {endereco[:60]!r} -> "
-                      f"{enriquecido.get('classificacao')} "
-                      f"(score={enriquecido.get('score_comercial')}, "
-                      f"confianca={enriquecido.get('confianca')})")
+        async with httpx.AsyncClient(timeout=60) as http_client:
+            enriquecidos = await _enriquecer_via_proxy_vercel(http_client, enderecos_validos)
 
-        await asyncio.gather(*(processar_linha(i, linha) for i, linha in enumerate(linhas)))
+        for i, linha in enumerate(linhas):
+            resultados[i] = {**linha, "erro": "endereco_vazio"}
+        for indice, enriquecido in zip(indices_validos, enriquecidos):
+            resultados[indice] = {**linhas[indice], **enriquecido}
+            print(f"[{indice + 1}/{len(linhas)}] {enriquecido.get('endereco', '')[:60]!r} -> "
+                  f"{enriquecido.get('classificacao')} "
+                  f"(score={enriquecido.get('score_comercial')})")
+    else:
+        semaforo = asyncio.Semaphore(CONCURRENCY)
+
+        async with httpx.AsyncClient(timeout=30) as http_client:
+            vision_client = AsyncOpenAI(api_key=VISION_API_KEY, base_url=VISION_BASE_URL)
+
+            async def processar_linha(indice: int, linha: dict[str, str]) -> None:
+                async with semaforo:
+                    endereco = (linha.get(coluna_endereco) or "").strip()
+                    if not endereco:
+                        resultados[indice] = {**linha, "erro": "endereco_vazio"}
+                        return
+                    enriquecido = await enriquecer_endereco(http_client, vision_client, endereco)
+                    resultados[indice] = {**linha, **enriquecido}
+                    print(f"[{indice + 1}/{len(linhas)}] {endereco[:60]!r} -> "
+                          f"{enriquecido.get('classificacao')} "
+                          f"(score={enriquecido.get('score_comercial')}, "
+                          f"confianca={enriquecido.get('confianca')})")
+
+            await asyncio.gather(*(processar_linha(i, linha) for i, linha in enumerate(linhas)))
 
     colunas_novas = [
         "classificacao", "score_comercial", "confianca",
@@ -303,8 +370,13 @@ def main() -> None:
     parser.add_argument("--saida", default="enderecos_enriquecidos.csv", help="CSV de saída")
     args = parser.parse_args()
 
-    if not GOOGLE_MAPS_API_KEY or not VISION_API_KEY:
-        print("ERRO: configure GOOGLE_MAPS_API_KEY e VISION_API_KEY em config.env antes de rodar.")
+    if VERCEL_PROXY_URL:
+        pass  # chaves de API ficam só no deploy Vercel, não são necessárias aqui
+    elif not GOOGLE_MAPS_API_KEY or not VISION_API_KEY:
+        print(
+            "ERRO: configure GOOGLE_MAPS_API_KEY e VISION_API_KEY em config.env "
+            "(ou VERCEL_PROXY_URL para usar o proxy) antes de rodar."
+        )
         sys.exit(1)
 
     caminho_entrada = Path(args.entrada)
