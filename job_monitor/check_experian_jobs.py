@@ -5,8 +5,8 @@ Uso:
 
 Compara as vagas encontradas agora com `job_monitor/seen_jobs.json` (estado da
 última execução, versionado no repo) e imprime em stdout um JSON com as vagas
-novas (se houver). Sempre atualiza o arquivo de estado com a lista completa
-de vagas vistas na execução atual.
+novas e as vagas que tiveram título alterado (se houver). Sempre atualiza o
+arquivo de estado com a lista completa de vagas vistas na execução atual.
 """
 
 import json
@@ -98,6 +98,17 @@ def main() -> None:
         if jid not in previous_state
     ]
 
+    changed_jobs = [
+        {
+            "jid": jid,
+            "title": data["title"],
+            "url": data["url"],
+            "previous_title": previous_state[jid]["title"],
+        }
+        for jid, data in current_jobs.items()
+        if jid in previous_state and previous_state[jid]["title"] != data["title"]
+    ]
+
     save_state(current_jobs)
 
     result = {
@@ -106,6 +117,7 @@ def main() -> None:
         "is_first_run": is_first_run,
         # No primeiro run não há "novidade" real, é só o baseline inicial.
         "new_jobs": [] if is_first_run else new_jobs,
+        "changed_jobs": [] if is_first_run else changed_jobs,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
