@@ -8,13 +8,14 @@ Script standalone (sem servidor) que verifica periodicamente a busca de vagas
 - `check_experian_jobs.py` busca todas as páginas de resultado da pesquisa e
   extrai `(id da vaga, título, link)` de cada uma.
 - Compara com `seen_jobs.json` (estado da última execução, versionado neste
-  repositório) para descobrir quais vagas são novas desde a última checagem e
+  repositório) para descobrir quais vagas são novas desde a última checagem,
   quais vagas já conhecidas tiveram o título alterado (ex.: reabertura,
-  mudança de escopo, remoção de "vaga afirmativa" etc.).
-- Atualiza `seen_jobs.json` com o resultado atual (vagas que saíram da busca —
-  encerradas/preenchidas — são removidas do estado).
-- Imprime em stdout um JSON com `new_jobs` e `changed_jobs` (ambos vazios na
-  primeira execução, já que ali só se define o baseline).
+  mudança de escopo, remoção de "vaga afirmativa" etc.) e quais vagas
+  conhecidas saíram da busca (encerradas/preenchidas).
+- Atualiza `seen_jobs.json` com o resultado atual (vagas que saíram da busca
+  são removidas do estado).
+- Imprime em stdout um JSON com `new_jobs`, `changed_jobs` e `removed_jobs`
+  (todos vazios na primeira execução, já que ali só se define o baseline).
 
 ## Automação
 
@@ -23,8 +24,9 @@ do Claude (não depende de infraestrutura própria: nenhum cron/servidor deste
 repositório precisa estar no ar). A cada execução:
 
 1. Roda `python job_monitor/check_experian_jobs.py`.
-2. Se houver vagas novas e/ou vagas alteradas: envia e-mail para o dono do
-   monitoramento e avisa na conversa do Claude Code, listando os dois grupos.
+2. Se houver vagas novas, alteradas e/ou removidas: envia e-mail para o dono
+   do monitoramento e avisa na conversa do Claude Code, listando os três
+   grupos.
 3. Faz commit + push de `seen_jobs.json` atualizado nesta branch.
 
 Para rodar manualmente:
